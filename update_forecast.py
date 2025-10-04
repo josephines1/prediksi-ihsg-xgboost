@@ -36,7 +36,7 @@ LOCAL_DATASET2_PATH = "data/IHSG 2013-2025⁄9⁄26.csv"
 MODEL_PATH = "model/xgboost_ihsg_model.pkl"
 OUTPUT_PATH = "./ihsg_forecast.xlsx"
 TICKER = "^JKSE"
-N_FORECAST = 5
+N_FORECAST = 30
 
 COLS_TO_DROP = ['Tanggal']
 
