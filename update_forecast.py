@@ -34,12 +34,77 @@ import os
 LOCAL_DATASET1_PATH = "data/IHSG 1993-2013.csv"
 LOCAL_DATASET2_PATH = "data/IHSG 2013-2025⁄9⁄26.csv"
 MODEL_PATH = "model/xgboost_ihsg_model.pkl"
-OUTPUT_PATH = r"C:\Users\USER\OneDrive - Universitas Negeri Jakarta (UNJ)\Proyek Data dan Analisis\ihsg_forecast.xlsx"
+OUTPUT_PATH = "./ihsg_forecast.xlsx"
 TICKER = "^JKSE"
 N_FORECAST = 5
 
 COLS_TO_DROP = ['Tanggal']
 
+# ===============================
+# UTILITAS TAMBAHAN
+# ===============================
+def parse_euro_number(x):
+    """
+    Parse number in formats:
+    '8.125,20' -> 8125.20
+    '8125,20'  -> 8125.20
+    '8125.20'  -> 8125.20
+    numeric -> float as is
+    """
+    if pd.isna(x):
+        return np.nan
+    if isinstance(x, (int, float, np.floating, np.integer)):
+        return float(x)
+    s = str(x).strip()
+    if s == '':
+        return np.nan
+    if '.' in s and ',' in s:
+        s2 = s.replace('.', '').replace(',', '.')
+        try:
+            return float(s2)
+        except:
+            return np.nan
+    if ',' in s and '.' not in s:
+        s2 = s.replace(',', '.')
+        try:
+            return float(s2)
+        except:
+            return np.nan
+    try:
+        return float(s)
+    except:
+        s3 = ''.join(ch for ch in s if ch.isdigit() or ch in '.,-')
+        s3 = s3.replace(',', '.')
+        try:
+            return float(s3)
+        except:
+            return np.nan
+
+def fmt_price_eu(v):
+    if pd.isna(v):
+        return ""
+    v = round(v, 2)  # dua desimal
+    s = f"{v:,.2f}"  # default: 1,234.56
+    # swap ke format CSV lokal: '.' ribuan, ',' desimal
+    s = s.replace(',', 'X').replace('.', ',').replace('X', '.')
+    return s
+
+def fmt_volume_eu(v):
+    if pd.isna(v):
+        return ""
+    try:
+        val = float(v)
+    except:
+        return ""
+    if abs(val) >= 1e9:
+        out = val / 1e9
+        s = f"{out:.2f}".replace('.', ',') + 'B'
+    elif abs(val) >= 1e6:
+        out = val / 1e6
+        s = f"{out:.2f}".replace('.', ',') + 'M'
+    else:
+        return fmt_price_eu(val)
+    return s
 
 # ===============================
 # UTILITAS
@@ -68,13 +133,7 @@ def normalize_local(df_local):
     df_local.columns = [c.strip() for c in df_local.columns]
 
     for col in ['Terakhir', 'Pembukaan', 'Tertinggi', 'Terendah']:
-        df_local[col] = (
-            df_local[col]
-            .astype(str)
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
-            .astype(float)
-        )
+        df_local[col] = df_local[col].apply(parse_euro_number)
 
     df_local['Vol.'] = df_local['Vol.'].apply(parse_volume)
     df_local['Tanggal'] = pd.to_datetime(df_local['Tanggal'], format='%d/%m/%Y')
@@ -87,6 +146,7 @@ def normalize_local(df_local):
         .str.replace(',', '.', regex=False)
     )
     df_local['Perubahan%'] = pd.to_numeric(df_local['Perubahan%'], errors='coerce')
+
 
     return df_local
 
@@ -202,13 +262,11 @@ def merge_yf_and_local(df_yf, df1_local, df2_local):
 
     # Coerce Terakhir dan Vol. ke numeric
     if 'Terakhir' in merged.columns:
-        merged['Terakhir'] = (
-            merged['Terakhir']
-            .astype(str)
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
-        )
-        merged['Terakhir'] = pd.to_numeric(merged['Terakhir'], errors='coerce')
+        # Cek tipe data, jika string kemungkinan data lokal, parse. 
+        if merged['Terakhir'].dtype == object:
+            merged['Terakhir'] = merged['Terakhir'].apply(parse_euro_number)
+        else:
+            merged['Terakhir'] = merged['Terakhir'].astype(float)
 
     if 'Vol.' in merged.columns:
         merged['Vol.'] = pd.to_numeric(merged['Vol.'], errors='coerce')
@@ -328,7 +386,7 @@ def forecast_future(model, df, n_forecast):
         new_row['Tanggal'] = current_date
         new_row['Terakhir'] = next_price
         new_row['Return'] = next_return
-    future_df.loc[len(future_df)] = new_row
+        future_df.loc[len(future_df)] = new_row
 
         last_price = next_price
 
@@ -343,10 +401,62 @@ def forecast_future(model, df, n_forecast):
     return forecast_df, future_df
 
 
-def save_to_excel(df, output_path):
+def save_to_excel(forecast_df, model_input_df, df_all_raw, output_path):
+    """
+    Save a single-sheet Excel:
+    - Historical rows: df_all_raw
+    - Forecast rows: forecast_df
+    """
+    df_hist = df_all_raw.copy()
+    if 'Tanggal' in df_hist.columns:
+        df_hist['Tanggal'] = pd.to_datetime(df_hist['Tanggal'], errors='coerce')
+    out_cols = ['Tanggal','Terakhir','Pembukaan','Tertinggi','Terendah','Vol.','Perubahan%']
+    for c in out_cols:
+        if c not in df_hist.columns:
+            df_hist[c] = np.nan
+
+    hist_rows = []
+    for _, r in df_hist.sort_values('Tanggal').iterrows():
+        date = r['Tanggal']
+        date_str = pd.to_datetime(date).strftime('%d/%m/%Y') if pd.notna(date) else ''
+        row = {
+            'Tanggal': date_str,
+            'Terakhir': fmt_price_eu(r['Terakhir']),
+            'Pembukaan': fmt_price_eu(r['Pembukaan']),
+            'Tertinggi': fmt_price_eu(r['Tertinggi']),
+            'Terendah': fmt_price_eu(r['Terendah']),
+            'Vol.': fmt_volume_eu(r['Vol.']),
+            'Perubahan%': (f"{r['Perubahan%']:.2f}".replace('.', ',') + '%') if pd.notna(r['Perubahan%']) else ''
+        }
+        hist_rows.append(row)
+
+    fore_rows = []
+    for _, fr in forecast_df.iterrows():
+        date = fr['Tanggal']
+        date_str = pd.to_datetime(date).strftime('%d/%m/%Y') if pd.notna(date) else ''
+        fore_rows.append({
+            'Tanggal': date_str,
+            'Terakhir': fmt_price_eu(fr['Predicted_Price']),
+            'Pembukaan': '',
+            'Tertinggi': '',
+            'Terendah': '',
+            'Vol.': '',
+            'Perubahan%': ''
+        })
+
+    out_df = pd.DataFrame(hist_rows + fore_rows, columns=out_cols)
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_excel(output_path, index=False)
-    print(f"💾 File tersimpan: {output_path}")
+    try:
+        with pd.ExcelWriter(output_path, engine='openpyxl', mode='w') as writer:
+            out_df.to_excel(writer, index=False, sheet_name='Sheet1')
+        print(f"💾 File tersimpan: {output_path}")
+    except PermissionError:
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        fallback = os.path.join(os.path.dirname(__file__), f"ihsg_forecast_fallback_{ts}.xlsx")
+        with pd.ExcelWriter(fallback, engine='openpyxl', mode='w') as writer:
+            out_df.to_excel(writer, index=False, sheet_name='Sheet1')
+        print(f"⚠️ File terkunci, disimpan ke fallback: {fallback}")
 
 
 # ===============================
@@ -363,16 +473,16 @@ if __name__ == "__main__":
     df2 = pd.read_csv(LOCAL_DATASET2_PATH)
 
     # 3. Merge semuanya
-    df_all = merge_yf_and_local(df_yf, df1, df2)
+    df_all_raw = merge_yf_and_local(df_yf, df1, df2)
 
     # 4. Feature engineering
-    df_all = add_features(df_all)
+    df_all = add_features(df_all_raw)
 
     # 5. Load model & prediksi
     model = load_model(MODEL_PATH)
-    forecast_df = forecast_future(model, df_all, N_FORECAST)
+    forecast_df, model_input_df = forecast_future(model, df_all, N_FORECAST)
 
-    # 6. Simpan hasil
-    save_to_excel(forecast_df, OUTPUT_PATH)
+    # 6. Simpan seluruh historis + prediksi
+    save_to_excel(forecast_df, model_input_df, df_all_raw, OUTPUT_PATH)
 
     print("🎯 Proses selesai sepenuhnya.")
