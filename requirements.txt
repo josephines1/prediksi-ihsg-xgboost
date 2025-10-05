@@ -15,8 +15,6 @@ gspread
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-pandas
-openpyxl
 
 # Optional / utility (uncomment if you need them)
 # seaborn>=0.12.0
