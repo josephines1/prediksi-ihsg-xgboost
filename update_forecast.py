@@ -11,6 +11,7 @@ Script otomatis untuk:
 7. Skip otomatis jika hari libur nasional atau akhir pekan.
 """
 
+import sys
 import os
 import datetime
 import holidays
