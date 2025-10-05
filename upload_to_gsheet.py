@@ -8,6 +8,20 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import numpy as np
+import datetime
+import holidays
+import sys
+
+# ===============================
+# CEK LIBUR NASIONAL & AKHIR PEKAN
+# ===============================
+today = datetime.date.today()
+id_holidays = holidays.Indonesia()
+
+if today.weekday() >= 5 or today in id_holidays:
+    reason = "akhir pekan" if today.weekday() >= 5 else "libur nasional"
+    print(f"⏸️ Hari ini ({today}) adalah {reason}. Prediksi otomatis dilewati.")
+    sys.exit(0)
 
 # === 1. Load kredensial ===
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
