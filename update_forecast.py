@@ -108,8 +108,10 @@ if __name__ == "__main__":
     print(f"   R²   : {price_r2:.4f}")
 
     # 8. Simpan hasil evaluasi gabungan ke Excel
+    today_date = pd.Timestamp.today().date()
+
     eval_data = {
-        "Tanggal_Update": [today],
+        "Tanggal_Update": [today_date],
         "RMSE": [metrics["RMSE"]],
         "MAPE": [metrics["MAPE"]],
         "R2": [metrics["R2"]],
@@ -123,13 +125,9 @@ if __name__ == "__main__":
 
     df_eval = pd.DataFrame(eval_data)
 
-    if os.path.exists(EVAL_PATH):
-        existing = pd.read_excel(EVAL_PATH, engine="openpyxl")
-        existing = existing[existing["Tanggal_Update"] != pd.Timestamp(today)]
-        df_eval = pd.concat([existing, df_eval], ignore_index=True)
-
+    # langsung overwrite tanpa baca file lama
     df_eval.to_excel(EVAL_PATH, index=False, engine="openpyxl")
-    print(f"💾 Hasil evaluasi lengkap disimpan ke {EVAL_PATH}")
+    print(f"💾 Hasil evaluasi terbaru disimpan ke {EVAL_PATH}")
 
     # 9. Simpan hasil forecast utama
     print("📂 Menyimpan hasil prediksi ke Excel...")
