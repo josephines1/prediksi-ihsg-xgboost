@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from zoneinfo import ZoneInfo
 # Guard imports to provide clearer instructions if a dependency is missing
 try:
     import yfinance as yf
@@ -97,7 +98,8 @@ def normalize_local(df_local):
 
 def fetch_latest_data():
     """Ambil data terbaru dari Yahoo Finance"""
-    today = datetime.today()
+    wib = ZoneInfo("Asia/Jakarta")
+    today = datetime.now(wib).date()  # tanggal saat ini di WIB
     start_date = "1990-01-01"
     print(f"📈 Mengambil data IHSG terbaru tanggal {today} dari Yahoo Finance...")
     df = yf.download(TICKER, start=start_date, end=today)
