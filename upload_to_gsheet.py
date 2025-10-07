@@ -49,7 +49,23 @@ except FileNotFoundError:
 
 # Bersihkan nilai yang tidak valid
 df_forecast = df_forecast.replace([np.inf, -np.inf], np.nan).fillna("")
-df_forecast = df_forecast.astype(str)
+
+# Kolom yang seharusnya numerik
+numeric_cols = ["Terakhir", "Pembukaan", "Tertinggi", "Terendah"]
+
+# Konversi dulu ke float, lalu bulatkan dan ubah ke format lokal (koma desimal)
+for col in numeric_cols:
+    if col in df_forecast.columns:
+        df_forecast[col] = (
+            pd.to_numeric(df_forecast[col], errors="coerce")
+            .round(2)
+            .map(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notna(x) else "")
+        )
+
+# Kolom lain diubah jadi string agar tidak error saat upload
+for col in df_forecast.columns:
+    if col not in numeric_cols:
+        df_forecast[col] = df_forecast[col].astype(str)
 
 # Ambil atau buat Sheet1
 try:

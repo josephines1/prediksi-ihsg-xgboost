@@ -140,7 +140,7 @@ if __name__ == "__main__":
     for row in ws.iter_rows(min_row=2):  # skip header
         for cell in row:
             if isinstance(cell.value, (int, float)):
-                cell.number_format = '#,##0.00'
+                cell.number_format = '[$-421]#,##0.00'
 
     # format kolom tanggal
     for row in ws.iter_rows(min_row=2, max_col=1):  # kolom pertama (Tanggal_Update)

@@ -139,7 +139,7 @@ def save_to_excel(forecast_df, model_input_df, df_all_raw, output_path, skip_hol
             try:
                 if cell.value not in (None, '', ' '):
                     cell.value = float(cell.value)
-                    cell.number_format = '#,##0.00'  # akan terdeteksi sebagai Number di Excel
+                    cell.number_format = '[$-421]#,##0.00'  # akan terdeteksi sebagai Number di Excel
             except Exception:
                 pass
 
