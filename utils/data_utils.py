@@ -97,9 +97,9 @@ def normalize_local(df_local):
 
 def fetch_latest_data():
     """Ambil data terbaru dari Yahoo Finance"""
-    print("📈 Mengambil data IHSG terbaru dari Yahoo Finance...")
     today = datetime.today()
     start_date = "1990-01-01"
+    print(f"📈 Mengambil data IHSG terbaru tanggal {today} dari Yahoo Finance...")
     df = yf.download(TICKER, start=start_date, end=today)
     df = df.reset_index().rename(columns={
         'Date': 'Tanggal',
