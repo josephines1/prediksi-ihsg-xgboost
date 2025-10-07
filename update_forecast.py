@@ -18,6 +18,8 @@ import holidays
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from openpyxl import load_workbook, Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 from utils.data_utils import fetch_latest_data, merge_yf_and_local
 from utils.features import add_features
@@ -125,8 +127,28 @@ if __name__ == "__main__":
 
     df_eval = pd.DataFrame(eval_data)
 
-    # langsung overwrite tanpa baca file lama
-    df_eval.to_excel(EVAL_PATH, index=False, engine="openpyxl")
+    # --- Simpan pakai openpyxl agar format number dan tanggal terdeteksi ---
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Evaluasi"
+
+    # tulis DataFrame ke sheet
+    for r in dataframe_to_rows(df_eval, index=False, header=True):
+        ws.append(r)
+
+    # format kolom angka
+    for row in ws.iter_rows(min_row=2):  # skip header
+        for cell in row:
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = '#,##0.00'
+
+    # format kolom tanggal
+    for row in ws.iter_rows(min_row=2, max_col=1):  # kolom pertama (Tanggal_Update)
+        for cell in row:
+            if isinstance(cell.value, (datetime.date, pd.Timestamp)):
+                cell.number_format = 'DD/MM/YYYY'
+
+    wb.save(EVAL_PATH)
     print(f"💾 Hasil evaluasi terbaru disimpan ke {EVAL_PATH}")
 
     # 9. Simpan hasil forecast utama
