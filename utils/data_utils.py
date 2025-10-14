@@ -100,7 +100,7 @@ def fetch_latest_data():
     """Ambil data terbaru dari Yahoo Finance"""
     wib = ZoneInfo("Asia/Jakarta")
     today = datetime.now(wib).date()  # tanggal saat ini di WIB
-    start_date = "1990-01-01"
+    start_date = "1993-01-01"
     print(f"📈 Mengambil data IHSG terbaru tanggal {today} dari Yahoo Finance...")
     df = yf.download(TICKER, start=start_date, end=today)
     df = df.reset_index().rename(columns={
