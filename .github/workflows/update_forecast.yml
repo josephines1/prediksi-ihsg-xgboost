@@ -43,6 +43,6 @@ jobs:
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add ihsg_forecast.xlsx
+          git add ihsg_forecast.xlsx model_evaluation.xlsx
           git commit -m "Update forecast [skip ci]" || echo "No changes to commit"
           git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/josephines1/prediksi-ihsg-xgboost.git HEAD

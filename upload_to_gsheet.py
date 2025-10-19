@@ -138,4 +138,22 @@ if rows_to_add:
 else:
     print("ℹ️ Tidak ada baris prediksi baru untuk ditambahkan.")
 
+# === 7. Upload evaluasi model ===
+if os.path.exists("model_evaluation.xlsx"):
+    df_eval = pd.read_excel("model_evaluation.xlsx", engine="openpyxl")
+    df_eval = df_eval.replace([np.inf, -np.inf], np.nan).fillna("")
+    df_eval = df_eval.astype(str)
+
+    try:
+        sheet2 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet2")
+    except gspread.WorksheetNotFound:
+        client.open_by_key(SPREADSHEET_ID).add_worksheet(title="Sheet2", rows="100", cols="10")
+        sheet2 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet2")
+
+    sheet2.clear()
+    sheet2.update([df_eval.columns.values.tolist()] + df_eval.values.tolist())
+    print("📊 Evaluasi model berhasil diupload ke Sheet2")
+else:
+    print("ℹ️ File evaluasi model belum ada, skip upload Sheet2")
+
 print("🎉 Upload selesai.")
