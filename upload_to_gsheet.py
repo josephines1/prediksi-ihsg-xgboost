@@ -73,16 +73,40 @@ tanggal_idx = headers.index("Tanggal")
 status_idx = headers.index("Status") if "Status" in headers else None
 
 # === 5. Cari baris dengan tanggal kemarin ===
-yesterday = today - datetime.timedelta(days=1)
-yesterday_str = yesterday.strftime("%m/%d/%Y")
+def parse_row_date(s):
+    try:
+        return datetime.datetime.strptime(s.strip(), "%m/%d/%Y").date()
+    except Exception:
+        return None
 
+# buat mapping date -> row index di sheet (row number di spreadsheet)
+date_to_row = {}
+for i, row in enumerate(records, start=2):  # baris sheet mulai 2 karena header di 1
+    d = parse_row_date(row[tanggal_idx])
+    if d:
+        # simpan paling kanan (last occurrence) atau pertama sesuai preferensi; di sini kita simpan yg pertama ditemukan
+        if d not in date_to_row:
+            date_to_row[d] = i
+
+# mulai dari yesterday, mundur sampai menemukan tanggal yang ada di sheet
+target = today - datetime.timedelta(days=1)
+max_back_days = 10  # batasi berapa hari mundur agar gak loop forever (ubah jika perlu)
+attempts = 0
 found_row_index = None
-for i, row in enumerate(records, start=2):  # mulai dari baris ke-2 (karena header di baris 1)
-    if row[tanggal_idx].strip() == yesterday_str:
-        found_row_index = i
+found_date = None
+
+while attempts < max_back_days:
+    # jika target adalah weekend, tetap cek karena sheet mungkin memiliki data (tetapi umumnya tidak)
+    if target in date_to_row:
+        found_row_index = date_to_row[target]
+        found_date = target
         break
+    # kalau tidak ada, mundur 1 hari
+    target -= datetime.timedelta(days=1)
+    attempts += 1
 
 if found_row_index:
+    yesterday_str = found_date.strftime("%m/%d/%Y")
     print(f"🕐 Update data historis untuk {yesterday_str} di baris {found_row_index}")
 
     # ambil baris dari df_forecast dengan tanggal yg sama
