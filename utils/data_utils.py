@@ -112,8 +112,8 @@ def fetch_latest_data():
         'Volume': 'Vol.'
     })
     df = df[['Tanggal', 'Terakhir', 'Pembukaan', 'Tertinggi', 'Terendah', 'Vol.']]
-    df['Perubahan%'] = df['Terakhir'].pct_change() * 100
-    df['Vol.'] = df['Vol.'].replace(0, np.nan)
+    df['Perubahan%'] = df['Terakhir'].pct_change() * 100 # pct = persentase perubahan antar baris
+    df['Vol.'] = df['Vol.'].replace(0, np.nan) # mengganti nilai volume 0 menjadi NaN agar dianggap sebagai data kosong/missing.
     return df
 
 

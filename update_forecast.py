@@ -1,16 +1,3 @@
-"""
-update_forecast.py
---------------------------------
-Script otomatis untuk:
-1. Ambil data terbaru IHSG dari Yahoo Finance.
-2. Gabungkan dengan dataset historis lokal (Investing.com CSV).
-3. Load model XGBoost terlatih dari Hugging Face (atau file lokal).
-4. Prediksi n hari ke depan.
-5. Evaluasi performa model (return & price).
-6. Simpan hasil ke Excel (mis. OneDrive/Google Drive).
-7. Skip otomatis jika hari libur nasional atau akhir pekan.
-"""
-
 import sys
 import os
 import datetime
