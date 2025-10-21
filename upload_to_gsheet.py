@@ -18,10 +18,16 @@ import sys
 today = datetime.date.today()
 id_holidays = holidays.Indonesia()
 
+def is_trading_day(date):
+    """Cek apakah tanggal adalah hari bursa (bukan weekend/libur)"""
+    return date.weekday() < 5 and date not in id_holidays
+
 if today.weekday() >= 5 or today in id_holidays:
     reason = "akhir pekan" if today.weekday() >= 5 else "libur nasional"
     print(f"⏸️ Hari ini ({today}) adalah {reason}. Prediksi otomatis dilewati.")
     sys.exit(0)
+
+print(f"📅 Hari ini: {today.strftime('%d/%m/%Y (%A)')}")
 
 # === 1. Load kredensial ===
 creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -44,6 +50,7 @@ SPREADSHEET_ID = "13EfYovEBQHg19pDY21I8RV7RR4Mo1SNSRzNckg_dwhw"
 # === 3. Load forecast terbaru ===
 try:
     df_forecast = pd.read_excel("ihsg_forecast.xlsx")
+    print(f"📊 File ihsg_forecast.xlsx berisi {len(df_forecast)} baris")
 except FileNotFoundError:
     raise SystemExit("❌ File 'ihsg_forecast.xlsx' tidak ditemukan!")
 
@@ -56,7 +63,8 @@ for col in numeric_cols:
 df_forecast = df_forecast.replace([np.inf, -np.inf], np.nan)
 df_forecast = df_forecast.where(pd.notnull(df_forecast), None)
 
-df_forecast["Tanggal"] = pd.to_datetime(df_forecast["Tanggal"]).dt.strftime("%m/%d/%Y")
+# Parse tanggal jadi datetime object dulu
+df_forecast["Tanggal"] = pd.to_datetime(df_forecast["Tanggal"])
 
 # === 4. Ambil Sheet1 ===
 sheet1 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet1")
@@ -72,84 +80,73 @@ if "Tanggal" not in headers:
 tanggal_idx = headers.index("Tanggal")
 status_idx = headers.index("Status") if "Status" in headers else None
 
-# === 5. Cari baris dengan tanggal kemarin ===
-def parse_row_date(s):
-    try:
-        return datetime.datetime.strptime(s.strip(), "%m/%d/%Y").date()
-    except Exception:
-        return None
+print(f"📋 Sheet1 memiliki {len(records)} baris data")
 
-# buat mapping date -> row index di sheet (row number di spreadsheet)
-date_to_row = {}
-for i, row in enumerate(records, start=2):  # baris sheet mulai 2 karena header di 1
-    d = parse_row_date(row[tanggal_idx])
-    if d:
-        # simpan paling kanan (last occurrence) atau pertama sesuai preferensi; di sini kita simpan yg pertama ditemukan
-        if d not in date_to_row:
-            date_to_row[d] = i
+# === 5. Update KEMARIN jadi Historis ===
+yesterday = today - datetime.timedelta(days=1)
 
-# mulai dari yesterday, mundur sampai menemukan tanggal yang ada di sheet
-target = today - datetime.timedelta(days=1)
-max_back_days = 10  # batasi berapa hari mundur agar gak loop forever (ubah jika perlu)
-attempts = 0
-found_row_index = None
-found_date = None
-
-while attempts < max_back_days:
-    # jika target adalah weekend, tetap cek karena sheet mungkin memiliki data (tetapi umumnya tidak)
-    if target in date_to_row:
-        found_row_index = date_to_row[target]
-        found_date = target
+# Kalau kemarin weekend/libur, mundur sampai hari bursa terakhir
+target_date = yesterday
+for _ in range(7):
+    if is_trading_day(target_date):
         break
-    # kalau tidak ada, mundur 1 hari
-    target -= datetime.timedelta(days=1)
-    attempts += 1
+    print(f"   {target_date.strftime('%d/%m/%Y')} bukan hari bursa, mundur...")
+    target_date -= datetime.timedelta(days=1)
+
+# Format: D/M/YYYY (hari/bulan/tahun) TANPA LEADING ZERO
+target_date_str = f"{target_date.day}/{target_date.month}/{target_date.year}"
+print(f"🎯 Target update: {target_date.strftime('%d %B %Y')} → {target_date_str}")
+
+# Cari baris di sheet
+found_row_index = None
+for i, row in enumerate(records, start=2):
+    if len(row) > tanggal_idx:
+        row_date = row[tanggal_idx].strip()
+        if row_date == target_date_str:
+            found_row_index = i
+            print(f"   ✓ Ketemu di baris {i}")
+            break
 
 if found_row_index:
-    yesterday_str = found_date.strftime("%m/%d/%Y")
-    print(f"🕐 Update data historis untuk {yesterday_str} di baris {found_row_index}")
-
-    # ambil baris dari df_forecast dengan tanggal yg sama
-    updated_row = df_forecast[df_forecast["Tanggal"] == yesterday_str]
-    if not updated_row.empty:
-        row_data = updated_row.iloc[0].to_dict()
-
-        # isi kolom historis ke sheet
-        update_dict = {}
-        for key, val in row_data.items():
-            if key in headers:
-                col_idx = headers.index(key) + 1
-                value = "" if val is None or str(val).lower() == "nan" else val
-                update_dict[col_idx] = value
-
-        # set kolom Status ke Historis
+    current_status = records[found_row_index - 2][status_idx] if status_idx is not None and len(records[found_row_index - 2]) > status_idx else ""
+    
+    if current_status != "Historis":
+        print(f"✏️ Update baris {found_row_index} → Status = Historis")
+        
         if status_idx is not None:
-            update_dict[status_idx + 1] = "Historis"
-
-        # update langsung ke Sheet
-        for col_idx, value in update_dict.items():
-            sheet1.update_cell(found_row_index, col_idx, value)
-
+            sheet1.update_cell(found_row_index, status_idx + 1, "Historis")
+            print(f"✅ Berhasil update {target_date_str} jadi Historis")
+    else:
+        print(f"ℹ️ Baris {found_row_index} sudah Historis, skip.")
 else:
-    print(f"⚠️ Tidak ditemukan baris dengan tanggal {yesterday_str} di Sheet1.")
+    print(f"⚠️ Tanggal {target_date_str} tidak ditemukan di sheet")
 
-# === 6. Tambahkan baris prediksi baru (lebih dari tanggal terakhir di Sheet) ===
+# === 6. Tambahkan baris prediksi baru ===
 existing_records = sheet1.get_all_records()
 existing_dates = []
 for row in existing_records:
     if "Tanggal" in row and row["Tanggal"]:
         try:
-            existing_dates.append(pd.to_datetime(row["Tanggal"]))
+            # Parse format D/M/YYYY (hari/bulan/tahun, tanpa leading zero)
+            existing_dates.append(pd.to_datetime(row["Tanggal"], format="%d/%m/%Y"))
         except Exception:
             pass
+
 last_date_in_sheet = max(existing_dates) if existing_dates else None
+
+if last_date_in_sheet:
+    print(f"📆 Tanggal terakhir di sheet: {last_date_in_sheet.strftime('%d/%m/%Y')}")
 
 rows_to_add = []
 for _, row in df_forecast.iterrows():
-    tgl = pd.to_datetime(row["Tanggal"])
+    tgl = row["Tanggal"]  # sudah datetime object
     if last_date_in_sheet is None or tgl > last_date_in_sheet:
+        # Format: D/M/YYYY (hari/bulan/tahun) TANPA LEADING ZERO
+        row_copy = row.copy()
+        row_copy["Tanggal"] = f"{tgl.day}/{tgl.month}/{tgl.year}"
+        
         cleaned = []
-        for val in row.tolist():
+        for val in row_copy.tolist():
             if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
                 cleaned.append("")
             else:
@@ -157,6 +154,7 @@ for _, row in df_forecast.iterrows():
         rows_to_add.append(cleaned)
 
 if rows_to_add:
+    print(f"➕ Menambahkan {len(rows_to_add)} baris baru...")
     sheet1.append_rows(rows_to_add, value_input_option="USER_ENTERED")
     print(f"✅ {len(rows_to_add)} baris prediksi baru ditambahkan.")
 else:
