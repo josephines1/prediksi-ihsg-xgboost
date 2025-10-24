@@ -116,6 +116,51 @@ if found_row_index:
         if status_idx is not None:
             sheet1.update_cell(found_row_index, status_idx + 1, "Historis")
             print(f"✅ Berhasil update {target_date_str} jadi Historis")
+
+        # === Lengkapi data kosong untuk baris yang baru diubah jadi Historis ===
+        forecast_row = df_forecast.loc[df_forecast["Tanggal"].dt.date == target_date]
+        if not forecast_row.empty:
+            forecast_row = forecast_row.iloc[0]
+
+            # Mapping kolom: nama di Sheet → nama di DataFrame
+            col_mapping = {
+                "Terakhir": "Terakhir",
+                "Pembukaan": "Pembukaan",
+                "Tertinggi": "Tertinggi",
+                "Terendah": "Terendah",
+                "Vol.": "Vol.",
+                "Perubahan%": "Perubahan%"
+            }
+
+            for col_name, df_col in col_mapping.items():
+                if col_name in headers:
+                    col_idx = headers.index(col_name) + 1  # +1 karena index 0-based
+                    new_val = forecast_row.get(df_col, None)
+
+                    # Kolom 'Terakhir' → langsung timpa tanpa cek kosong
+                    if col_name == "Terakhir":
+                        if pd.notnull(new_val):
+                            sheet1.update_cell(found_row_index, col_idx, new_val)
+                            print(f"   ✳️ Kolom 'Terakhir' diperbarui dengan nilai dari forecast ({new_val})")
+                        else:
+                            print(f"   ⚠️ Nilai 'Terakhir' di forecast kosong, tidak diperbarui")
+
+                    # Kolom lain → isi hanya jika kosong
+                    else:
+                        current_val = (
+                            records[found_row_index - 2][col_idx - 1]
+                            if len(records[found_row_index - 2]) >= col_idx
+                            else ""
+                        )
+                        if (current_val == "" or current_val is None) and pd.notnull(new_val):
+                            sheet1.update_cell(found_row_index, col_idx, new_val)
+                            print(f"   🔄 Kolom '{col_name}' dilengkapi dengan nilai dari forecast ({new_val})")
+                        elif current_val != "" and current_val is not None:
+                            print(f"   ℹ️ Kolom '{col_name}' sudah terisi ({current_val}), skip.")
+                        else:
+                            print(f"   ⚠️ Kolom '{col_name}' tetap kosong (tidak ada nilai di forecast)")
+        else:
+            print(f"⚠️ Data {target_date_str} tidak ditemukan di ihsg_forecast.xlsx — tidak bisa melengkapi nilai.")
     else:
         print(f"ℹ️ Baris {found_row_index} sudah Historis, skip.")
 else:
@@ -139,7 +184,7 @@ if last_date_in_sheet:
 
 rows_to_add = []
 for _, row in df_forecast.iterrows():
-    tgl = row["Tanggal"]  # sudah datetime object
+    tgl = row["Tanggal"]
     if last_date_in_sheet is None or tgl > last_date_in_sheet:
         # Format: D/M/YYYY (hari/bulan/tahun) TANPA LEADING ZERO
         row_copy = row.copy()
