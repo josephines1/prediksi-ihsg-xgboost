@@ -16,6 +16,7 @@ google-auth
 google-auth-oauthlib
 google-auth-httplib2
 holidays
+python-dotenv>=1.0.0
 
 # Optional / utility (uncomment if you need them)
 # seaborn>=0.12.0

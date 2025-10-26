@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - development
   schedule:
     - cron: "0 2 * * 1-5" # setiap hari kerja jam 02:00 UTC
   workflow_dispatch:
@@ -27,7 +28,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install yfinance openpyxl joblib xgboost pandas numpy gspread google-auth google-api-python-client
+
+      - name: Set environment for current branch
+        id: env-branch
+        run: |
+          if [ "${{ github.ref_name }}" == "development" ]; then
+            echo "ENV=development" >> $GITHUB_ENV
+            echo "SPREADSHEET_ID_DEV=${{ secrets.SPREADSHEET_ID_DEV }}" >> $GITHUB_ENV
+          else
+            echo "ENV=production" >> $GITHUB_ENV
+            echo "SPREADSHEET_ID_PROD=${{ secrets.SPREADSHEET_ID_PROD }}" >> $GITHUB_ENV
+          fi
 
       - name: Run forecast script
         run: |
@@ -45,4 +56,4 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git add ihsg_forecast.xlsx model_evaluation.xlsx
           git commit -m "Update forecast [skip ci]" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/josephines1/prediksi-ihsg-xgboost.git HEAD
+          git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }} HEAD

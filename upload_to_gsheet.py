@@ -12,6 +12,26 @@ import datetime
 import holidays
 import sys
 
+from dotenv import load_dotenv
+
+# ===============================
+# Load env
+# ===============================
+load_dotenv()
+
+# Akses variabel
+spreadsheet_id_dev = os.getenv("SPREADSHEET_ID_DEV")
+spreadsheet_id_prod = os.getenv("SPREADSHEET_ID_PROD")
+env = os.getenv("ENV")
+
+if env == "development":
+    SPREADSHEET_ID = spreadsheet_id_dev
+else:
+    SPREADSHEET_ID = spreadsheet_id_prod
+
+print(f"🚀 Environment aktif: {env}")
+print(f"🧾 Spreadsheet ID yang digunakan: {SPREADSHEET_ID}")
+
 # ===============================
 # CEK LIBUR NASIONAL & AKHIR PEKAN
 # ===============================
@@ -44,10 +64,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 client = gspread.authorize(creds)
 
-# === 2. Konfigurasi Spreadsheet ===
-SPREADSHEET_ID = "13EfYovEBQHg19pDY21I8RV7RR4Mo1SNSRzNckg_dwhw"
-
-# === 3. Load forecast terbaru ===
+# === 2. Load forecast terbaru ===
 try:
     df_forecast = pd.read_excel("ihsg_forecast.xlsx")
     print(f"📊 File ihsg_forecast.xlsx berisi {len(df_forecast)} baris")
@@ -55,7 +72,7 @@ except FileNotFoundError:
     raise SystemExit("❌ File 'ihsg_forecast.xlsx' tidak ditemukan!")
 
 # Bersihkan dan format data
-numeric_cols = ["Terakhir", "Pembukaan", "Tertinggi", "Terendah"]
+numeric_cols = ["Terakhir", "Pembukaan", "Tertinggi", "Terendah", "Terakhir (Prediksi)"]
 for col in numeric_cols:
     if col in df_forecast.columns:
         df_forecast[col] = pd.to_numeric(df_forecast[col], errors="coerce").round(2)
@@ -66,7 +83,7 @@ df_forecast = df_forecast.where(pd.notnull(df_forecast), None)
 # Parse tanggal jadi datetime object dulu
 df_forecast["Tanggal"] = pd.to_datetime(df_forecast["Tanggal"])
 
-# === 4. Ambil Sheet1 ===
+# === 3. Ambil Sheet1 ===
 sheet1 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet1")
 
 # Ambil semua data sheet
@@ -78,50 +95,41 @@ if "Tanggal" not in headers:
     raise SystemExit("❌ Kolom 'Tanggal' tidak ditemukan di Sheet1.")
 
 tanggal_idx = headers.index("Tanggal")
-status_idx = headers.index("Status") if "Status" in headers else None
+terakhir_prediksi_idx = headers.index("Terakhir (Prediksi)") if "Terakhir (Prediksi)" in headers else None
 
 print(f"📋 Sheet1 memiliki {len(records)} baris data")
 
-# === 5. Update KEMARIN jadi Historis ===
-yesterday = today - datetime.timedelta(days=1)
+# === 4. Update baris yang ada: Timpa jika Terakhir (Prediksi) kosong ===
+print("🔄 Mengecek dan mengupdate baris yang sudah ada...")
 
-# Kalau kemarin weekend/libur, mundur sampai hari bursa terakhir
-target_date = yesterday
-for _ in range(7):
-    if is_trading_day(target_date):
-        break
-    print(f"   {target_date.strftime('%d/%m/%Y')} bukan hari bursa, mundur...")
-    target_date -= datetime.timedelta(days=1)
+# Kumpulkan semua cell yang perlu diupdate
+all_cells_to_update = []
 
-# Format: D/M/YYYY (hari/bulan/tahun) TANPA LEADING ZERO
-target_date_str = f"{target_date.day}/{target_date.month}/{target_date.year}"
-print(f"🎯 Target update: {target_date.strftime('%d %B %Y')} → {target_date_str}")
-
-# Cari baris di sheet
-found_row_index = None
 for i, row in enumerate(records, start=2):
-    if len(row) > tanggal_idx:
-        row_date = row[tanggal_idx].strip()
-        if row_date == target_date_str:
-            found_row_index = i
-            print(f"   ✓ Ketemu di baris {i}")
-            break
-
-if found_row_index:
-    current_status = records[found_row_index - 2][status_idx] if status_idx is not None and len(records[found_row_index - 2]) > status_idx else ""
+    if len(row) <= tanggal_idx or not row[tanggal_idx].strip():
+        continue
     
-    if current_status != "Historis":
-        print(f"✏️ Update baris {found_row_index} → Status = Historis")
+    row_date_str = row[tanggal_idx].strip()
+    
+    # Cek apakah Terakhir (Prediksi) kosong
+    terakhir_prediksi_val = ""
+    if terakhir_prediksi_idx is not None and len(row) > terakhir_prediksi_idx:
+        terakhir_prediksi_val = row[terakhir_prediksi_idx].strip()
+    
+    # Jika Terakhir (Prediksi) kosong, timpa semua kolom dengan data dari forecast
+    if not terakhir_prediksi_val:
+        # Parse tanggal dari sheet (format: D/M/YYYY)
+        try:
+            sheet_date = pd.to_datetime(row_date_str, format="%d/%m/%Y")
+        except:
+            continue
         
-        if status_idx is not None:
-            sheet1.update_cell(found_row_index, status_idx + 1, "Historis")
-            print(f"✅ Berhasil update {target_date_str} jadi Historis")
-
-        # === Lengkapi data kosong untuk baris yang baru diubah jadi Historis ===
-        forecast_row = df_forecast.loc[df_forecast["Tanggal"].dt.date == target_date]
+        # Cari data di df_forecast
+        forecast_row = df_forecast.loc[df_forecast["Tanggal"].dt.date == sheet_date.date()]
+        
         if not forecast_row.empty:
             forecast_row = forecast_row.iloc[0]
-
+            
             # Mapping kolom: nama di Sheet → nama di DataFrame
             col_mapping = {
                 "Terakhir": "Terakhir",
@@ -129,44 +137,43 @@ if found_row_index:
                 "Tertinggi": "Tertinggi",
                 "Terendah": "Terendah",
                 "Vol.": "Vol.",
-                "Perubahan%": "Perubahan%"
+                "Perubahan%": "Perubahan%",
+                "Terakhir (Prediksi)": "Terakhir (Prediksi)"
             }
-
+            
+            # Kumpulkan cells untuk baris ini
             for col_name, df_col in col_mapping.items():
                 if col_name in headers:
-                    col_idx = headers.index(col_name) + 1  # +1 karena index 0-based
+                    col_idx = headers.index(col_name) + 1
                     new_val = forecast_row.get(df_col, None)
+                    
+                    if pd.notnull(new_val):
+                        # Konversi ke format A1 notation
+                        col_letter = gspread.utils.rowcol_to_a1(i, col_idx)
+                        all_cells_to_update.append({
+                            'range': col_letter,
+                            'values': [[new_val]]
+                        })
 
-                    # Kolom 'Terakhir' → langsung timpa tanpa cek kosong
-                    if col_name == "Terakhir":
-                        if pd.notnull(new_val):
-                            sheet1.update_cell(found_row_index, col_idx, new_val)
-                            print(f"   ✳️ Kolom 'Terakhir' diperbarui dengan nilai dari forecast ({new_val})")
-                        else:
-                            print(f"   ⚠️ Nilai 'Terakhir' di forecast kosong, tidak diperbarui")
+# Batch update semua cells sekaligus (maksimal 60 per batch untuk safety)
+if all_cells_to_update:
+    print(f"   📝 Mengupdate {len(all_cells_to_update)} cell...")
+    
+    # Split menjadi batch dengan ukuran 50 untuk menghindari rate limit
+    batch_size = 50
+    for i in range(0, len(all_cells_to_update), batch_size):
+        batch = all_cells_to_update[i:i+batch_size]
+        sheet1.batch_update(batch, value_input_option='USER_ENTERED')
+        print(f"   ✅ Batch {i//batch_size + 1} selesai ({len(batch)} cells)")
+        
+        # Tambahkan delay kecil antar batch jika ada batch berikutnya
+        if i + batch_size < len(all_cells_to_update):
+            import time
+            time.sleep(1)  # Delay 1 detik antar batch
+    
+    print(f"✅ Total {len(all_cells_to_update)} cell berhasil diupdate")
 
-                    # Kolom lain → isi hanya jika kosong
-                    else:
-                        current_val = (
-                            records[found_row_index - 2][col_idx - 1]
-                            if len(records[found_row_index - 2]) >= col_idx
-                            else ""
-                        )
-                        if (current_val == "" or current_val is None) and pd.notnull(new_val):
-                            sheet1.update_cell(found_row_index, col_idx, new_val)
-                            print(f"   🔄 Kolom '{col_name}' dilengkapi dengan nilai dari forecast ({new_val})")
-                        elif current_val != "" and current_val is not None:
-                            print(f"   ℹ️ Kolom '{col_name}' sudah terisi ({current_val}), skip.")
-                        else:
-                            print(f"   ⚠️ Kolom '{col_name}' tetap kosong (tidak ada nilai di forecast)")
-        else:
-            print(f"⚠️ Data {target_date_str} tidak ditemukan di ihsg_forecast.xlsx — tidak bisa melengkapi nilai.")
-    else:
-        print(f"ℹ️ Baris {found_row_index} sudah Historis, skip.")
-else:
-    print(f"⚠️ Tanggal {target_date_str} tidak ditemukan di sheet")
-
-# === 6. Tambahkan baris prediksi baru ===
+# === 5. Tambahkan baris prediksi baru ===
 existing_records = sheet1.get_all_records()
 existing_dates = []
 for row in existing_records:
@@ -205,7 +212,7 @@ if rows_to_add:
 else:
     print("ℹ️ Tidak ada baris prediksi baru untuk ditambahkan.")
 
-# === 7. Upload evaluasi model ===
+# === 6. Upload evaluasi model ===
 if os.path.exists("model_evaluation.xlsx"):
     df_eval = pd.read_excel("model_evaluation.xlsx", engine="openpyxl")
     df_eval = df_eval.replace([np.inf, -np.inf], np.nan).fillna("")
