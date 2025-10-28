@@ -3,10 +3,9 @@ name: Update IHSG Forecast
 on:
   push:
     branches:
-      - main
       - development
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 jobs:
