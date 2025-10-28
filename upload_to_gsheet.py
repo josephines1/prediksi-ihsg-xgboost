@@ -99,79 +99,127 @@ terakhir_prediksi_idx = headers.index("Terakhir (Prediksi)") if "Terakhir (Predi
 
 print(f"📋 Sheet1 memiliki {len(records)} baris data")
 
-# === 4. Update baris yang ada: Timpa jika Terakhir (Prediksi) kosong ===
+# === 4. Update baris yang ada: data historis & prediksi ===
 print("🔄 Mengecek dan mengupdate baris yang sudah ada...")
 
-# Kumpulkan semua cell yang perlu diupdate
 all_cells_to_update = []
+
+def normalize_numeric(val):
+    """Konversi string dengan format lokal (ID/EN) menjadi float untuk perbandingan."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, (int, float)):
+        return round(float(val), 2)
+    val = str(val).strip()
+
+    # Hapus simbol %, tanda mata uang, dan spasi
+    val = val.replace("%", "").replace("Rp", "").strip()
+
+    # Deteksi pola numerik
+    try:
+        # Kalau format Indonesia (contoh: 8.274,35)
+        if "," in val and "." in val and val.find(",") > val.find("."):
+            val = val.replace(".", "").replace(",", ".")
+        # Kalau format Inggris (contoh: 8,274.35)
+        elif "," in val and "." in val and val.find(",") < val.find("."):
+            val = val.replace(",", "")
+        # Kalau hanya koma sebagai desimal
+        elif "," in val and "." not in val:
+            val = val.replace(",", ".")
+        return round(float(val), 2)
+    except Exception:
+        return None
 
 for i, row in enumerate(records, start=2):
     if len(row) <= tanggal_idx or not row[tanggal_idx].strip():
         continue
     
     row_date_str = row[tanggal_idx].strip()
-    
-    # Cek apakah Terakhir (Prediksi) kosong
+    try:
+        sheet_date = pd.to_datetime(row_date_str, format="%d/%m/%Y")
+    except Exception:
+        continue
+
+    forecast_row = df_forecast.loc[df_forecast["Tanggal"].dt.date == sheet_date.date()]
+    if forecast_row.empty:
+        continue
+    forecast_row = forecast_row.iloc[0]
+
+    col_mapping_hist = {
+        "Terakhir": "Terakhir",
+        "Pembukaan": "Pembukaan",
+        "Tertinggi": "Tertinggi",
+        "Terendah": "Terendah",
+        "Vol.": "Vol.",
+        "Perubahan%": "Perubahan%"
+    }
+
+    col_mapping_pred = {"Terakhir (Prediksi)": "Terakhir (Prediksi)"}
+
     terakhir_prediksi_val = ""
     if terakhir_prediksi_idx is not None and len(row) > terakhir_prediksi_idx:
         terakhir_prediksi_val = row[terakhir_prediksi_idx].strip()
-    
-    # Jika Terakhir (Prediksi) kosong, timpa semua kolom dengan data dari forecast
-    if not terakhir_prediksi_val:
-        # Parse tanggal dari sheet (format: D/M/YYYY)
-        try:
-            sheet_date = pd.to_datetime(row_date_str, format="%d/%m/%Y")
-        except:
-            continue
-        
-        # Cari data di df_forecast
-        forecast_row = df_forecast.loc[df_forecast["Tanggal"].dt.date == sheet_date.date()]
-        
-        if not forecast_row.empty:
-            forecast_row = forecast_row.iloc[0]
-            
-            # Mapping kolom: nama di Sheet → nama di DataFrame
-            col_mapping = {
-                "Terakhir": "Terakhir",
-                "Pembukaan": "Pembukaan",
-                "Tertinggi": "Tertinggi",
-                "Terendah": "Terendah",
-                "Vol.": "Vol.",
-                "Perubahan%": "Perubahan%",
-                "Terakhir (Prediksi)": "Terakhir (Prediksi)"
-            }
-            
-            # Kumpulkan cells untuk baris ini
-            for col_name, df_col in col_mapping.items():
-                if col_name in headers:
-                    col_idx = headers.index(col_name) + 1
-                    new_val = forecast_row.get(df_col, None)
-                    
-                    if pd.notnull(new_val):
-                        # Konversi ke format A1 notation
-                        col_letter = gspread.utils.rowcol_to_a1(i, col_idx)
-                        all_cells_to_update.append({
-                            'range': col_letter,
-                            'values': [[new_val]]
-                        })
 
-# Batch update semua cells sekaligus (maksimal 60 per batch untuk safety)
+    # CASE 1 — update data historis (tanggal < hari ini)
+    if sheet_date.date() < today:
+        for col_name, df_col in col_mapping_hist.items():
+            if col_name not in headers:
+                continue
+
+            col_idx = headers.index(col_name) + 1
+            new_val = forecast_row.get(df_col, None)
+            current_val = row[col_idx - 1].strip() if len(row) > col_idx - 1 else ""
+
+            # Bandingkan nilai numerik
+            new_num = normalize_numeric(new_val)
+            old_num = normalize_numeric(current_val)
+
+            # Update kalau kosong atau berbeda signifikan (>0.01)
+            if (old_num is None and new_num is not None) or (
+                isinstance(new_num, (int, float))
+                and isinstance(old_num, (int, float))
+                and abs(new_num - old_num) > 0.01
+            ):
+                col_letter = gspread.utils.rowcol_to_a1(i, col_idx)
+                all_cells_to_update.append({'range': col_letter, 'values': [[new_val]]})
+                print(f"   🔧 Update {sheet_date.strftime('%d/%m/%Y')} kolom {col_name} → {new_val}")
+
+    # CASE 2 — update prediksi (tanggal >= hari ini)
+    elif sheet_date.date() >= today:
+        if "Terakhir (Prediksi)" in headers:
+            col_idx = headers.index("Terakhir (Prediksi)") + 1
+            new_val = forecast_row.get("Terakhir (Prediksi)", None)
+
+            # Hanya update kalau ada nilai baru (bukan NaN)
+            if pd.notnull(new_val):
+                current_val = row[col_idx - 1].strip() if len(row) > col_idx - 1 else ""
+                new_num = normalize_numeric(new_val)
+                old_num = normalize_numeric(current_val)
+
+                # Update kalau kosong ATAU nilainya berubah signifikan
+                if (old_num is None and new_num is not None) or (
+                    isinstance(new_num, (int, float))
+                    and isinstance(old_num, (int, float))
+                    and abs(new_num - old_num) > 0.01
+                ):
+                    col_letter = gspread.utils.rowcol_to_a1(i, col_idx)
+                    all_cells_to_update.append({'range': col_letter, 'values': [[new_val]]})
+                    print(f"   🔮 Update prediksi {sheet_date.strftime('%d/%m/%Y')} → {new_val}")
+
+# Batch update
 if all_cells_to_update:
     print(f"📝 Mengupdate {len(all_cells_to_update)} cell...")
-    
-    # Split menjadi batch dengan ukuran 50 untuk menghindari rate limit
     batch_size = 50
-    for i in range(0, len(all_cells_to_update), batch_size):
-        batch = all_cells_to_update[i:i+batch_size]
+    for j in range(0, len(all_cells_to_update), batch_size):
+        batch = all_cells_to_update[j:j+batch_size]
         sheet1.batch_update(batch, value_input_option='USER_ENTERED')
-        print(f"   ✅ Batch {i//batch_size + 1} selesai ({len(batch)} cells)")
-        
-        # Tambahkan delay kecil antar batch jika ada batch berikutnya
-        if i + batch_size < len(all_cells_to_update):
+        print(f"   ✅ Batch {j//batch_size + 1} selesai ({len(batch)} cells)")
+        if j + batch_size < len(all_cells_to_update):
             import time
-            time.sleep(1)  # Delay 1 detik antar batch
-    
+            time.sleep(1)
     print(f"✅ Total {len(all_cells_to_update)} cell berhasil diupdate")
+else:
+    print("ℹ️ Tidak ada cell yang perlu diupdate.")
 
 # === 5. Tambahkan baris prediksi baru ===
 existing_records = sheet1.get_all_records()
@@ -216,7 +264,19 @@ else:
 if os.path.exists("model_evaluation.xlsx"):
     df_eval = pd.read_excel("model_evaluation.xlsx", engine="openpyxl")
     df_eval = df_eval.replace([np.inf, -np.inf], np.nan).fillna("")
-    df_eval = df_eval.astype(str)
+
+    # Konversi baris ke list siap upload (serialize datetime → str)
+    data_to_upload = []
+    for _, row in df_eval.iterrows():
+        new_row = []
+        for val in row:
+            if pd.isna(val):
+                new_row.append("")
+            elif isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
+                new_row.append(val.strftime("%Y-%m-%d"))
+            else:
+                new_row.append(val)
+        data_to_upload.append(new_row)
 
     try:
         sheet2 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet2")
@@ -225,8 +285,11 @@ if os.path.exists("model_evaluation.xlsx"):
         sheet2 = client.open_by_key(SPREADSHEET_ID).worksheet("Sheet2")
 
     sheet2.clear()
-    sheet2.update([df_eval.columns.values.tolist()] + df_eval.values.tolist())
-    print("📊 Evaluasi model berhasil diupload ke Sheet2")
+    sheet2.update(
+        [df_eval.columns.values.tolist()] + data_to_upload,
+        value_input_option="USER_ENTERED"
+    )
+    print("📊 Evaluasi model berhasil diupload ke Sheet2 (angka tetap numerik, tanggal diformat)")
 else:
     print("ℹ️ File evaluasi model belum ada, skip upload Sheet2")
 
