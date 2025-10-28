@@ -6,7 +6,7 @@ on:
       - main
       - development
   schedule:
-    - cron: "0 2 * * 1-5" # setiap hari kerja jam 02:00 UTC
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
