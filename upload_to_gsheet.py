@@ -157,7 +157,7 @@ for i, row in enumerate(records, start=2):
 
 # Batch update semua cells sekaligus (maksimal 60 per batch untuk safety)
 if all_cells_to_update:
-    print(f"   📝 Mengupdate {len(all_cells_to_update)} cell...")
+    print(f"📝 Mengupdate {len(all_cells_to_update)} cell...")
     
     # Split menjadi batch dengan ukuran 50 untuk menghindari rate limit
     batch_size = 50
