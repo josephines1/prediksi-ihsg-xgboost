@@ -2,12 +2,12 @@ name: Update IHSG Forecast (Main + Dev)
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # setiap hari kerja jam 02:00 UTC
+    - cron: "0 2 * * 1-5" # setiap hari kerja jam 02:00 UTC
   workflow_dispatch:
 
 jobs:
   # ============================================
-  # 1️⃣ JOB UNTUK PRODUKSI (branch main)
+  # JOB UNTUK PRODUKSI (branch main)
   # ============================================
   forecast-prod:
     name: Run Forecast - Production (main)
@@ -55,7 +55,7 @@ jobs:
           git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }} HEAD:main
 
   # ============================================
-  # 2️⃣ JOB UNTUK DEVELOPMENT (branch development)
+  # JOB UNTUK DEVELOPMENT (branch development)
   # ============================================
   forecast-dev:
     name: Run Forecast - Development
