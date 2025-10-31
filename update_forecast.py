@@ -81,75 +81,178 @@ if __name__ == "__main__":
     print("🔮 Membuat prediksi incremental...")
     updated_df = forecast_future_incremental(model, df_all, df_all_raw, existing_df, N_FORECAST)
 
-    # 8. Evaluasi performa model (Return) - hanya untuk 30 hari terakhir
-    print("📊 Mengevaluasi performa model (berdasarkan return)...")
-    expected_features = get_model_feature_names(model)
-    X_eval = df_all[expected_features].iloc[-30:]
-    y_eval = df_all["Return"].iloc[-30:]
-    y_pred = model.predict(X_eval)
+    # 8. EVALUASI MENGGUNAKAN PREDIKSI HISTORIS
+    print("\n📊 Mengevaluasi performa model dengan prediksi historis...")
+    
+    if existing_df is not None and len(existing_df) > 0:
+        # Ambil periode 30 hari sebelum hari ini
+        today_dt = pd.Timestamp(today)
+        date_30_days_ago = today_dt - pd.Timedelta(days=30)
+        
+        # Filter prediksi historis untuk 30 hari terakhir yang punya nilai aktual
+        historical_data = existing_df[
+            (existing_df['Tanggal'] >= date_30_days_ago) & 
+            (existing_df['Tanggal'] < today_dt) &
+            (existing_df['Terakhir'].notna())  # Harus ada nilai aktual
+        ].copy()
+        
+        if len(historical_data) > 0:
+            print(f"   📅 Periode evaluasi: {date_30_days_ago.date()} - {today_dt.date()}")
+            print(f"   📈 Ditemukan {len(historical_data)} data historis dengan nilai aktual")
+            
+            # Debug: cek kolom yang ada
+            print(f"   📋 Kolom yang tersedia: {historical_data.columns.tolist()}")
+            
+            # Bersihkan format angka pada kolom Terakhir (Prediksi)
+            # Contoh: "8.164,80" -> 8164.80
+            if 'Terakhir (Prediksi)' in historical_data.columns:
+                def parse_number(x):
+                    if pd.isna(x) or x == '' or x == ' ':
+                        return np.nan
+                    # Jika sudah float/int, langsung return
+                    if isinstance(x, (int, float)):
+                        return float(x)
+                    # Jika string, bersihkan
+                    x_str = str(x).strip()
+                    # Hapus titik ribuan, ganti koma dengan titik
+                    x_str = x_str.replace('.', '').replace(',', '.')
+                    try:
+                        return float(x_str)
+                    except:
+                        return np.nan
+                
+                historical_data['Predicted_Price'] = historical_data['Terakhir (Prediksi)'].apply(parse_number)
+                
+                # Debug: tampilkan beberapa contoh konversi
+                print("\n   🔍 Contoh konversi Predicted_Price:")
+                sample = historical_data[['Tanggal', 'Terakhir (Prediksi)', 'Predicted_Price']].head()
+                for _, row in sample.iterrows():
+                    print(f"      {row['Tanggal'].date()}: '{row['Terakhir (Prediksi)']}' -> {row['Predicted_Price']}")
+            else:
+                print("   ⚠️ Kolom 'Terakhir (Prediksi)' tidak ditemukan")
+                historical_data['Predicted_Price'] = np.nan
+            
+            # Hitung Predicted_Return
+            # Predicted_Return = (Predicted_Price / Terakhir_sebelumnya) - 1
+            historical_data['Terakhir_prev'] = historical_data['Terakhir'].shift(1)
+            historical_data['Predicted_Return'] = (
+                historical_data['Predicted_Price'] / historical_data['Terakhir_prev']
+            ) - 1
+            
+            # Hitung Actual Return
+            historical_data['Actual_Return'] = (
+                historical_data['Terakhir'] / historical_data['Terakhir_prev']
+            ) - 1
+            
+            # Debug: tampilkan beberapa contoh perhitungan
+            print("\n   🔍 Contoh perhitungan Return:")
+            sample = historical_data[['Tanggal', 'Terakhir_prev', 'Terakhir', 'Predicted_Price', 'Actual_Return', 'Predicted_Return']].head(5)
+            for _, row in sample.iterrows():
+                print(f"      {row['Tanggal'].date()}:")
+                print(f"         Terakhir prev: {row['Terakhir_prev']:.2f}")
+                print(f"         Terakhir: {row['Terakhir']:.2f}")
+                print(f"         Predicted: {row['Predicted_Price']:.2f}")
+                print(f"         Actual Return: {row['Actual_Return']:.6f}")
+                print(f"         Predicted Return: {row['Predicted_Return']:.6f}")
+            
+            # Filter baris yang valid (tidak NaN)
+            valid_data = historical_data[
+                historical_data['Predicted_Return'].notna() & 
+                historical_data['Actual_Return'].notna() &
+                historical_data['Predicted_Price'].notna()
+            ].copy()
+            
+            if len(valid_data) > 0:
+                print(f"   ✓ Berhasil memproses {len(valid_data)} data untuk evaluasi")
+                
+                # Evaluasi Return
+                y_actual_return = valid_data['Actual_Return'].values
+                y_pred_return = valid_data['Predicted_Return'].values
+                
+                return_mse = mean_squared_error(y_actual_return, y_pred_return)
+                return_rmse = np.sqrt(return_mse)
+                return_mae = mean_absolute_error(y_actual_return, y_pred_return)
+                return_r2 = r2_score(y_actual_return, y_pred_return)
+                
+                # MAPE Return
+                mask = y_actual_return != 0
+                return_mape = np.mean(np.abs((y_actual_return[mask] - y_pred_return[mask]) / y_actual_return[mask]))
+                
+                print("\n📈 Evaluasi Return:")
+                print(f"   MSE  : {return_mse:.8f}")
+                print(f"   RMSE : {return_rmse:.6f}")
+                print(f"   MAE  : {return_mae:.6f}")
+                print(f"   R²   : {return_r2:.4f}")
+                print(f"   MAPE : {return_mape:.2%}")
+                
+                # Evaluasi Harga
+                y_actual_price = valid_data['Terakhir'].values
+                y_pred_price = valid_data['Predicted_Price'].values
+                
+                price_mse = mean_squared_error(y_actual_price, y_pred_price)
+                price_rmse = np.sqrt(price_mse)
+                price_mae = mean_absolute_error(y_actual_price, y_pred_price)
+                price_r2 = r2_score(y_actual_price, y_pred_price)
+                
+                # MAPE Harga
+                price_mape = np.mean(np.abs((y_actual_price - y_pred_price) / y_actual_price))
+                
+                print("\n💰 Evaluasi Harga:")
+                print(f"   MSE  : {price_mse:.2f}")
+                print(f"   RMSE : {price_rmse:.2f}")
+                print(f"   MAE  : {price_mae:.2f}")
+                print(f"   R²   : {price_r2:.4f}")
+                print(f"   MAPE : {price_mape:.2%}")
+                
+                # 9. Simpan hasil evaluasi (struktur asli)
+                today_date = pd.Timestamp.today().date()
+                
+                eval_data = {
+                    "Tanggal_Update": [today_date],
+                    "RMSE": [return_rmse],
+                    "MAPE": [return_mape],
+                    "R2": [return_r2],
+                    "MSE": [return_mse],
+                    "Jumlah_Data_Evaluasi": [len(valid_data)],
+                    "MSE_Price": [price_mse],
+                    "RMSE_Price": [price_rmse],
+                    "MAE_Price": [price_mae],
+                    "R2_Price": [price_r2],
+                }
+                
+                df_eval = pd.DataFrame(eval_data)
+                
+                # Simpan ke Excel
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Evaluasi"
+                
+                for r in dataframe_to_rows(df_eval, index=False, header=True):
+                    ws.append(r)
+                
+                # Format angka
+                for row in ws.iter_rows(min_row=2):
+                    for i, cell in enumerate(row):
+                        if i == 0:  # Tanggal_Update
+                            if isinstance(cell.value, (datetime.date, pd.Timestamp)):
+                                cell.number_format = 'DD/MM/YYYY'
+                        elif isinstance(cell.value, (int, float)):
+                            if i == 5:  # Jumlah_Data_Evaluasi
+                                cell.number_format = '0'
+                            else:
+                                cell.number_format = '[$-421]#,##0.00'
+                
+                wb.save(EVAL_PATH)
+                print(f"\n💾 Hasil evaluasi disimpan ke {EVAL_PATH}")
+            else:
+                print("   ⚠️ Tidak ada data yang valid untuk evaluasi setelah filtering")
+        else:
+            print("   ⚠️ Tidak ditemukan data historis dengan nilai aktual dalam 30 hari terakhir")
+    else:
+        print("   ⚠️ File existing tidak ditemukan, evaluasi dilewati")
 
-    metrics = evaluate_model_performance(y_eval, y_pred)
-    print(f"✅ RMSE (Return): {metrics['RMSE']:.6f}, MAPE: {metrics['MAPE']:.2%}, R²: {metrics['R2']:.4f}")
-
-    # 9. Evaluasi berbasis harga
-    print("\n💰 Mengonversi ke evaluasi berdasarkan harga...")
-    eval_df = df_all.iloc[-30:].copy()
-    eval_df["Predicted_Return"] = y_pred
-    eval_df["Predicted_Price"] = eval_df["Terakhir"].shift(1) * (1 + eval_df["Predicted_Return"])
-
-    valid_df = eval_df.iloc[1:].copy()
-
-    price_mse = mean_squared_error(valid_df["Terakhir"], valid_df["Predicted_Price"])
-    price_rmse = np.sqrt(price_mse)
-    price_mae = mean_absolute_error(valid_df["Terakhir"], valid_df["Predicted_Price"])
-    price_r2 = r2_score(valid_df["Terakhir"], valid_df["Predicted_Price"])
-
-    print("📈 Evaluasi Model Berdasarkan Harga:")
-    print(f"   MSE  : {price_mse:.2f}")
-    print(f"   RMSE : {price_rmse:.2f}")
-    print(f"   MAE  : {price_mae:.2f}")
-    print(f"   R²   : {price_r2:.4f}")
-
-    # 10. Simpan hasil evaluasi
-    today_date = pd.Timestamp.today().date()
-
-    eval_data = {
-        "Tanggal_Update": [today_date],
-        "RMSE": [metrics["RMSE"]],
-        "MAPE": [metrics["MAPE"]],
-        "R2": [metrics["R2"]],
-        "MSE": [metrics["MSE"]],
-        "Jumlah_Data_Evaluasi": [len(valid_df)],
-        "MSE_Price": [price_mse],
-        "RMSE_Price": [price_rmse],
-        "MAE_Price": [price_mae],
-        "R2_Price": [price_r2],
-    }
-
-    df_eval = pd.DataFrame(eval_data)
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Evaluasi"
-
-    for r in dataframe_to_rows(df_eval, index=False, header=True):
-        ws.append(r)
-
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            if isinstance(cell.value, (int, float)):
-                cell.number_format = '[$-421]#,##0.00'
-
-    for row in ws.iter_rows(min_row=2, max_col=1):
-        for cell in row:
-            if isinstance(cell.value, (datetime.date, pd.Timestamp)):
-                cell.number_format = 'DD/MM/YYYY'
-
-    wb.save(EVAL_PATH)
-    print(f"💾 Hasil evaluasi terbaru disimpan ke {EVAL_PATH}")
-
-    # 11. Simpan hasil forecast
-    print("📂 Menyimpan hasil prediksi ke Excel...")
+    # 10. Simpan hasil forecast
+    print("\n📂 Menyimpan hasil prediksi ke Excel...")
     
     wb_output = Workbook()
     ws_output = wb_output.active
