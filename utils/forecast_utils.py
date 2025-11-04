@@ -240,6 +240,17 @@ def forecast_future_incremental(model, df_all, df_all_raw, existing_df, n_foreca
     # Tambahkan prediksi masa depan ke result (pastikan tidak ada duplikat)
     if len(future_predictions) > 0:
         future_df_pred = pd.DataFrame(future_predictions)
+        # Debug: tampilkan jumlah dan tanggal prediksi yang di-generate
+        try:
+            print(f"   🔎 Generated future predictions: {len(future_predictions)}")
+            print("   📅 Predicted dates:")
+            for d in future_df_pred['Tanggal']:
+                try:
+                    print(f"      - {pd.to_datetime(d).date()}")
+                except Exception:
+                    print(f"      - {d}")
+        except Exception:
+            pass
         existing_future_dates = future_df_pred['Tanggal'].tolist()
         result_df = result_df[~result_df['Tanggal'].isin(existing_future_dates)].copy()
         result_df = pd.concat([result_df, future_df_pred], ignore_index=True)

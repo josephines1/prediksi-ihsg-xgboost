@@ -85,16 +85,21 @@ if __name__ == "__main__":
     print("\n📊 Mengevaluasi performa model dengan prediksi historis...")
     
     if existing_df is not None and len(existing_df) > 0:
-        # Ambil periode 30 hari sebelum hari ini
+        # Ambil periode 30 hari sejak kemarin (nilai aktual terakhir)
         today_dt = pd.Timestamp(today)
-        date_30_days_ago = today_dt - pd.Timedelta(days=30)
-        
+        yesterday = today_dt - pd.Timedelta(days=1)        
+        date_30_days_ago = yesterday - pd.Timedelta(days=30)
+
         # Filter prediksi historis untuk 30 hari terakhir yang punya nilai aktual
-        historical_data = existing_df[
-            (existing_df['Tanggal'] >= date_30_days_ago) & 
-            (existing_df['Tanggal'] < today_dt) &
-            (existing_df['Terakhir'].notna())  # Harus ada nilai aktual
-        ].copy()
+        # Ambil data sampai kemarin saja
+        historical_data = (
+            existing_df[existing_df['Tanggal'] <= yesterday]
+            .sort_values("Tanggal")
+            .tail(90)                      # ambil buffer 90 hari
+            .dropna(subset=["Terakhir"])  # pastikan hanya baris yang punya actual
+            .tail(30)                      # ambil 30 valid
+            .copy()
+        )
         
         if len(historical_data) > 0:
             print(f"   📅 Periode evaluasi: {date_30_days_ago.date()} - {today_dt.date()}")
@@ -163,7 +168,7 @@ if __name__ == "__main__":
             ].copy()
             
             if len(valid_data) > 0:
-                print(f"   ✓ Berhasil memproses {len(valid_data)} data untuk evaluasi")
+                print(f"   ✓ Berhasil memproses {len(historical_data)} data untuk evaluasi")
                 
                 # Evaluasi Return
                 y_actual_return = valid_data['Actual_Return'].values
@@ -213,7 +218,7 @@ if __name__ == "__main__":
                     "MAPE": [return_mape],
                     "R2": [return_r2],
                     "MSE": [return_mse],
-                    "Jumlah_Data_Evaluasi": [len(valid_data)],
+                    "Jumlah_Data_Evaluasi": [len(historical_data)],
                     "MSE_Price": [price_mse],
                     "RMSE_Price": [price_rmse],
                     "MAE_Price": [price_mae],
