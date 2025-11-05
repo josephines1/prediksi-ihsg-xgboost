@@ -71,7 +71,10 @@ if __name__ == "__main__":
         print(f"📖 Membaca file existing: {OUTPUT_PATH}")
         try:
             existing_df = pd.read_excel(OUTPUT_PATH, sheet_name="Sheet1")
-            existing_df['Tanggal'] = pd.to_datetime(existing_df['Tanggal'], dayfirst=True, errors='coerce')
+            # <-- NORMALISASI: convert to datetime AND drop any time-of-day by normalizing to midnight
+            existing_df['Tanggal'] = pd.to_datetime(
+                existing_df['Tanggal'], dayfirst=True, errors='coerce'
+            ).dt.normalize()
             print(f"   ✓ File existing berisi {len(existing_df)} baris")
         except Exception as e:
             print(f"   ⚠️ Error membaca file existing: {e}")
@@ -86,14 +89,14 @@ if __name__ == "__main__":
     
     if existing_df is not None and len(existing_df) > 0:
         # Ambil periode 30 hari sejak kemarin (nilai aktual terakhir)
-        today_dt = pd.Timestamp(today)
-        yesterday = today_dt - pd.Timedelta(days=1)        
+        today_dt = pd.Timestamp(today).normalize()   # pastikan midnight
+        yesterday = today_dt - pd.Timedelta(days=1)
         date_30_days_ago = yesterday - pd.Timedelta(days=30)
 
         # Filter prediksi historis untuk 30 hari terakhir yang punya nilai aktual
-        # Ambil data sampai kemarin saja
+        # Ambil data sampai kemarin saja (bandingkan tanpa komponen waktu)
         historical_data = (
-            existing_df[existing_df['Tanggal'] <= yesterday]
+            existing_df[existing_df['Tanggal'].dt.normalize() <= yesterday]
             .sort_values("Tanggal")
             .tail(90)                      # ambil buffer 90 hari
             .dropna(subset=["Terakhir"])  # pastikan hanya baris yang punya actual
