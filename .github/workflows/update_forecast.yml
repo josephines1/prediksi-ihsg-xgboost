@@ -1,9 +1,11 @@
 name: Update IHSG Forecast (Main + Dev)
 
 on:
-  schedule:
-    - cron: "0 2 * * 1-5" # setiap hari kerja jam 02:00 UTC
+  # schedule:
+  #   - cron: "0 2 * * 1-5" # setiap hari kerja jam 02:00 UTC
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   # ============================================
